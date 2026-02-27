@@ -3,13 +3,13 @@ name: Build GecoosAC APK for AN7581
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # 支持手动点击运行
+  workflow_dispatch: 
 
 jobs:
   Build_APK:
     runs-on: ubuntu-latest
-    # 使用官方针对 AN7581 架构预置的 SDK 容器
-    container: openwrt/sdk:airoha-an7581
+    # 使用 aarch64 通用 SDK 镜像，确保 Docker Pull 成功
+    container: openwrt/sdk:aarch64_cortex-a53
 
     steps:
       - name: Checkout Repo
@@ -17,20 +17,18 @@ jobs:
 
       - name: Prepare SDK and Source
         run: |
-          # 1. 进入容器内的 SDK 根目录
-          # 官方镜像的 SDK 通常在 /home/build/openwrt 或当前目录
-          # 我们先确认环境并更新 feeds
+          # 1. 更新容器内的 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 2. 拷贝你的源码到 SDK 的 package 目录
-          # 自动识别仓库中的 luci-app-gecoosac 或 gecoosac 文件夹
-          if [ -d "luci-app-gecoosac" ]; then
-            cp -r luci-app-gecoosac package/gecoosac
-          elif [ -d "gecoosac" ]; then
-            cp -r gecoosac package/gecoosac
+          # 2. 自动定位源码文件夹并拷贝
+          # 检查仓库根目录下是否存在源码
+          SOURCE_DIR=$(ls -d luci-app-gecoos* gecoos* 2>/dev/null | head -n 1)
+          if [ -n "$SOURCE_DIR" ]; then
+            cp -r "$SOURCE_DIR" package/gecoosac
+            echo "✅ 发现源码: $SOURCE_DIR"
           else
-            echo "❌ 错误：仓库根目录未发现源码文件夹！请确保文件夹名为 luci-app-gecoosac"
+            echo "❌ 严重错误：仓库根目录没找到 luci-app-gecoosac 源码文件夹！"
             ls -R
             exit 1
           fi
@@ -40,13 +38,13 @@ jobs:
           # 3. 生成默认配置
           make defconfig
           
-          # 4. 执行编译 (针对新版 APK v3 格式)
-          # V=s 用于显示详细日志，方便报错排查
+          # 4. 强制针对 aarch64 编译为 .apk (v3 格式)
+          # 注意：镜像默认环境可能需要指向具体的 Makefile
           make package/gecoosac/compile V=s
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gecoosac-an7581-apk
-          # 编译出的文件通常在 bin/packages/... 目录下
-          path: bin/targets/airoha/an7581/packages/*.apk
+          name: gecoosac-aarch64-apk
+          # 编译出的文件路径 (在通用镜像中通常位于 bin/packages/aarch64_cortex-a53/base/)
+          path: bin/packages/aarch64_cortex-a53/base/*.apk
