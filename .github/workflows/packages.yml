@@ -20,31 +20,36 @@ jobs:
 
       - name: Build in Docker Container
         run: |
-          # 运行容器
           docker run --rm \
             -v "$(pwd)":/tmp/custom \
             openwrt/sdk:aarch64_cortex-a53 \
             bash -c "
-              # 1. 自动定位 SDK 根目录 (寻找 scripts/feeds 所在的目录)
-              # 官方镜像有时在 /builder, 有时在根目录, 我们通过 scripts 文件夹定位
-              SDK_DIR=\$(find / -maxdepth 3 -name scripts -type d | sed 's/\/scripts//' | head -n 1)
-              cd \"\$SDK_DIR\" || cd /builder || cd /home/build/openwrt || exit 1
-              echo \"✅ 成功进入 SDK 目录: \$PWD\"
+              # 1. 深度搜索 scripts/feeds 所在的绝对路径
+              REAL_SDK_DIR=\$(find /builder /home/build -name feeds -path '*/scripts/feeds' 2>/dev/null | sed 's/\/scripts\/feeds//' | head -n 1)
               
-              # 2. 拷贝源码到 package
+              if [ -z \"\$REAL_SDK_DIR\" ]; then
+                echo \"❌ 致命错误：无法定位 SDK 核心目录\"
+                ls -R /builder
+                exit 1
+              fi
+              
+              cd \"\$REAL_SDK_DIR\"
+              echo \"✅ 成功进入 SDK 核心目录: \$PWD\"
+              
+              # 2. 准备源码
               mkdir -p package/custom
               cp -r /tmp/custom/* package/custom/
 
-              # 3. 更新 Feeds 并编译
+              # 3. 这里的 scripts/feeds 必然存在了
               ./scripts/feeds update -a && ./scripts/feeds install -a
-              make defconfig
               
-              # 4. 执行编译
+              # 4. 编译
+              make defconfig
               make package/custom/compile V=s
               
-              # 5. 将 bin 目录整体拷贝到挂载点
+              # 5. 拷回产物
               mkdir -p /tmp/custom/output_bin
-              [ -d \"bin\" ] && cp -r bin/* /tmp/custom/output_bin/ || echo \"❌ 未发现 bin 目录\"
+              [ -d \"bin\" ] && cp -r bin/* /tmp/custom/output_bin/
             "
 
       - name: Upload Artifact
@@ -52,4 +57,3 @@ jobs:
         with:
           name: gecoosac-aarch64-apk
           path: output_bin/**/*.apk
-          if-no-files-found: warn
