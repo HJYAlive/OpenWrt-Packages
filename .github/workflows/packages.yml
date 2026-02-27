@@ -8,44 +8,33 @@ on:
 jobs:
   Build_APK:
     runs-on: ubuntu-latest
-    container:
-      image: openwrt/sdk:aarch64_cortex-a53
 
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Fix Permissions and Prepare
+      - name: Build in Docker Container
         run: |
-          # 1. 赋予当前目录全权，防止 root 模式下的 checkout 产生权限问题
-          sudo chown -R build:build . || chmod -R 777 .
-          
-          # 2. 更新 feeds
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # 1. 赋予当前目录权限，确保容器内可以读写
+          chmod -R 777 .
 
-          # 3. 自动定位源码文件夹并拷贝
-          SOURCE_DIR=$(ls -d luci-app-gecoos* gecoos* 2>/dev/null | head -n 1)
-          if [ -n "$SOURCE_DIR" ]; then
-            cp -r "$SOURCE_DIR" package/gecoosac
-            echo "✅ 发现源码: $SOURCE_DIR"
-          else
-            echo "❌ 严重错误：仓库根目录未发现源码文件夹！"
-            ls -R
-            exit 1
-          fi
-
-      - name: Compile Package
-        run: |
-          # 4. 生成默认配置
-          make defconfig
-          
-          # 5. 编译为 .apk (强制使用当前环境编译)
-          # 如果 root 编译受阻，脚本会自动尝试处理
-          make package/gecoosac/compile V=s
+          # 2. 启动容器并执行编译指令
+          # 我们把当前目录挂载到容器的 /home/build/openwrt/package/custom
+          docker run --rm \
+            -v "$(pwd)":/home/build/openwrt/package/custom \
+            openwrt/sdk:aarch64_cortex-a53 \
+            bash -c "
+              # 更新 Feeds
+              ./scripts/feeds update -a && ./scripts/feeds install -a
+              
+              # 编译插件 (SDK 会自动识别 package/custom 里的源码)
+              make defconfig
+              make package/custom/compile V=s
+            "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
+          # 路径指向宿主机挂载出的 bin 目录
           path: bin/packages/aarch64_cortex-a53/base/*.apk
