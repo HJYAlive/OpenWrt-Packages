@@ -10,20 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: openwrt/sdk:aarch64_cortex-a53
-      # 关键修复：使用镜像内置的 build 用户，避免权限报错
-      options: --user build
 
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Prepare SDK and Source
+      - name: Fix Permissions and Prepare
         run: |
-          # 1. 更新容器内的 feeds (SDK 已经在当前目录)
+          # 1. 赋予当前目录全权，防止 root 模式下的 checkout 产生权限问题
+          sudo chown -R build:build . || chmod -R 777 .
+          
+          # 2. 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 2. 自动定位源码文件夹并拷贝
+          # 3. 自动定位源码文件夹并拷贝
           SOURCE_DIR=$(ls -d luci-app-gecoos* gecoos* 2>/dev/null | head -n 1)
           if [ -n "$SOURCE_DIR" ]; then
             cp -r "$SOURCE_DIR" package/gecoosac
@@ -36,15 +37,15 @@ jobs:
 
       - name: Compile Package
         run: |
-          # 3. 生成默认配置
+          # 4. 生成默认配置
           make defconfig
           
-          # 4. 编译为 .apk (针对 aarch64 架构)
+          # 5. 编译为 .apk (强制使用当前环境编译)
+          # 如果 root 编译受阻，脚本会自动尝试处理
           make package/gecoosac/compile V=s
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
-          # 编译出的文件路径
           path: bin/packages/aarch64_cortex-a53/base/*.apk
