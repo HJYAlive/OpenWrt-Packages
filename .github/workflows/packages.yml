@@ -13,68 +13,44 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
+      - name: Cleanup and Fix Permissions
+        run: |
+          # 1. 强制清理上一次残留的 root 权限目录
+          sudo rm -rf output_bin
+          # 2. 赋予当前目录全权
+          sudo chmod -R 777 .
+
       - name: Build in Docker Container
         run: |
-          # 1. 宿主机赋予权限
-          chmod -R 777 .
-
-          # 2. 运行官方 SDK 镜像
-          # 官方镜像默认用户是 build (UID 1000)，工作目录在 SDK 根目录
+          # 3. 运行官方 SDK 镜像
+          # 挂载宿主机当前目录到容器 /tmp/custom
           docker run --rm \
             -v "$(pwd)":/tmp/custom \
             openwrt/sdk:aarch64_cortex-a53 \
             bash -c "
-              # 进入 SDK 根目录 (官方标准路径)
               cd /home/build/openwrt
               
-              # 拷贝源码到 package
+              # 拷贝源码到 SDK 目录
               mkdir -p package/custom
               cp -r /tmp/custom/* package/custom/
 
-              # 更新并安装 feeds
+              # 更新 Feeds 并编译
               ./scripts/feeds update -a && ./scripts/feeds install -a
-              
-              # 生成默认配置
               make defconfig
               
-              # 编译插件 (生成 .apk)
+              # 执行编译 (APK v3 格式)
               make package/custom/compile V=s
               
-              # 将结果拷回挂载点
+              # 关键：将生成的 bin 目录整体拷贝到挂载点
               mkdir -p /tmp/custom/output_bin
-              cp -r bin/* /tmp/custom/output_bin/ 2>/dev/null || true
-            "
-
-      - name: Build in Docker Container
-        run: |
-          # 1. 宿主机赋予全权
-          chmod -R 777 .
-
-          # 2. 运行容器
-          docker run --rm \
-            -v "$(pwd)":/tmp/custom \
-            openwrt/sdk:aarch64_cortex-a53 \
-            bash -c "
-              cd /home/build/openwrt
-              
-              # 同步源码
-              mkdir -p package/custom
-              cp -r /tmp/custom/* package/custom/
-
-              # 更新并编译
-              ./scripts/feeds update -a && ./scripts/feeds install -a
-              make defconfig
-              # 关键：这里直接编译 custom 文件夹下的所有源码
-              make package/custom/compile V=s
-              
-              # 重点：直接把整个 bin 目录拷贝出来，防止路径找错
-              cp -r bin /tmp/custom/output_bin
+              cp -r bin/* /tmp/custom/output_bin/
             "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
-          # 3. 这里的路径改用通配符，搜索 output_bin 下所有子目录里的 apk
+          # 4. 递归搜索 output_bin 下所有子目录里的 .apk 文件
           path: output_bin/**/*.apk
-          # 如果还是找不到，可以临时改为 path: output_bin/ 看看里面到底产出了什么
+          # 如果编译后没找到特定后缀，建议临时改为 path: output_bin/ 查看结构
+          if-no-files-found: warn
