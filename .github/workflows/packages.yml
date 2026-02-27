@@ -42,27 +42,37 @@ jobs:
           
       - name: Build APK for AN7581
         run: |
-          BASE_URL="https://downloads.openwrt.org"
-          FILE_NAME=$(curl -s "$BASE_URL" | grep -oE "openwrt-sdk-airoha-an7581_[^\"'>]+\.tar\.xz" | head -n 1)
+          # 1. 声明完整路径 (注意双引号，防止链接被截断)
+          TARGET_URL="https://downloads.openwrt.org"
+          
+          # 2. 抓取网页内容并提取 SDK 文件名
+          FILE_NAME=$(curl -sL "$TARGET_URL" | grep -oE "openwrt-sdk-airoha-an7581_[^\"'>]+\.tar\.xz" | head -n 1)
           
           if [ -z "$FILE_NAME" ]; then
-            echo "错误：无法在 $BASE_URL 找到 SDK 文件名！"
+            echo "错误：无法在 $TARGET_URL 找到 SDK 文件名！"
+            # 打印网页前 20 行调试信息
+            curl -sL "$TARGET_URL" | head -n 20
             exit 1
           fi
           
-          FULL_URL="${BASE_URL}${FILE_NAME}"
-          echo "正在从此地址下载 SDK: $FULL_URL"
+          echo "成功定位 SDK 文件: $FILE_NAME"
           
-          wget -q "$FULL_URL" -O sdk_archive.tar.xz
+          # 3. 下载并重命名，确保解压命令不报错
+          wget -q "${TARGET_URL}${FILE_NAME}" -O sdk.tar.xz
+          
+          # 4. 创建目录并解压
           mkdir -p sdk
-          tar -xJf sdk_archive.tar.xz -C sdk --strip-components=1
+          tar -xJf sdk.tar.xz -C sdk --strip-components=1
           
+          # 5. 准备编译环境
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          cp -r ../luci-app-gecoosac package/ || echo "警告：未找到源码文件夹"
+          # 6. 拷贝你的源码 (请确保仓库根目录有 luci-app-gecoosac 文件夹)
+          [ -d "../luci-app-gecoosac" ] && cp -r ../luci-app-gecoosac package/ || echo "警告：未找到源码文件夹"
           
+          # 7. 生成配置并编译成 .apk
           make defconfig
           make package/luci-app-gecoosac/compile V=s || true
 
@@ -71,6 +81,7 @@ jobs:
         with:
           name: gecoosac-apk-an7581
           path: sdk/bin/targets/airoha/an7581/packages/*.apk
+
 
 
       - name: Delete workflow runs
