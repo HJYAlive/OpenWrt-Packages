@@ -18,27 +18,37 @@ jobs:
           # 1. 宿主机赋予权限
           chmod -R 777 .
 
-          # 2. 运行官方 SDK 镜像进行编译
-          # 我们把当前仓库挂载到容器内的 package/custom 目录
+          # 2. 运行官方 SDK 镜像
+          # 挂载当前目录到容器内的 /tmp/custom
           docker run --rm \
-            -v "$(pwd)":/home/build/openwrt/package/custom \
-            -w /home/build/openwrt \
+            -v "$(pwd)":/tmp/custom \
             openwrt/sdk:aarch64_cortex-a53 \
             bash -c "
-              # 更新 feeds
+              # 自动定位 SDK 根目录 (寻找 scripts/feeds 所在的目录)
+              SDK_PATH=\$(find / -name feeds -path '*/scripts/feeds' | sed 's/\/scripts\/feeds//' | head -n 1)
+              echo \"✅ 找到 SDK 路径: \$SDK_PATH\"
+              cd \$SDK_PATH
+
+              # 将源码拷贝到 SDK 的 package 目录
+              mkdir -p package/custom
+              cp -r /tmp/custom/* package/custom/
+
+              # 更新 feeds 并安装
               ./scripts/feeds update -a && ./scripts/feeds install -a
               
               # 自动配置
               make defconfig
               
               # 编译插件 (针对新版 APK v3 格式)
-              # 注意：如果你的 Makefile 在子文件夹里，SDK 也会自动扫描到
               make package/custom/compile V=s
+              
+              # 编译完成后，把生成的 bin 文件夹拷贝回挂载目录，方便宿主机上传
+              cp -r bin /tmp/custom/output_bin
             "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
-          # 宽泛匹配，确保能抓到生成的 .apk 文件
-          path: bin/**/*.apk
+          # 指向刚才拷贝出来的 output_bin 目录
+          path: output_bin/**/*.apk
