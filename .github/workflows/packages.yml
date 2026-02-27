@@ -45,8 +45,36 @@ jobs:
               cp -r bin/* /tmp/custom/output_bin/ 2>/dev/null || true
             "
 
+      - name: Build in Docker Container
+        run: |
+          # 1. 宿主机赋予全权
+          chmod -R 777 .
+
+          # 2. 运行容器
+          docker run --rm \
+            -v "$(pwd)":/tmp/custom \
+            openwrt/sdk:aarch64_cortex-a53 \
+            bash -c "
+              cd /home/build/openwrt
+              
+              # 同步源码
+              mkdir -p package/custom
+              cp -r /tmp/custom/* package/custom/
+
+              # 更新并编译
+              ./scripts/feeds update -a && ./scripts/feeds install -a
+              make defconfig
+              # 关键：这里直接编译 custom 文件夹下的所有源码
+              make package/custom/compile V=s
+              
+              # 重点：直接把整个 bin 目录拷贝出来，防止路径找错
+              cp -r bin /tmp/custom/output_bin
+            "
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
+          # 3. 这里的路径改用通配符，搜索 output_bin 下所有子目录里的 apk
           path: output_bin/**/*.apk
+          # 如果还是找不到，可以临时改为 path: output_bin/ 看看里面到底产出了什么
