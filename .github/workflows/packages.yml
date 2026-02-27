@@ -39,6 +39,32 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: ${{ steps.update.outputs.message }}
+                - name: Build APK for AN7581
+        run: |
+          # 1. 下载适用于 6.12/Snapshot 的 SDK
+          wget https://downloads.openwrt.org
+          tar -xJf openwrt-sdk-*.tar.xz
+          mv openwrt-sdk-* sdk
+          
+          # 2. 更新 SDK feeds
+          cd sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+          # 3. 将你刚才更新下来的插件源码放入 SDK 编译目录
+          # 假设你的插件在仓库根目录下的 luci-app-gecoosac 文件夹
+          cp -r ../luci-app-gecoosac package/
+          
+          # 4. 编译 (关键：这会生成 v3 格式的 .apk)
+          make defconfig
+          make package/luci-app-gecoosac/compile V=s
+
+      - name: Upload APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gecoosac-apk-an7581
+          path: sdk/bin/targets/airoha/an7581/packages/*.apk
+
           
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@main
