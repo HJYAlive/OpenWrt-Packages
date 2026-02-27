@@ -24,42 +24,46 @@ jobs:
             -v "$(pwd)":/tmp/custom \
             openwrt/sdk:aarch64_cortex-a53 \
             bash -c "
-              # 1. 核心修复：运行镜像自带的 setup 脚本来释放 SDK
+              # 1. 初始化环境
               cd /builder
-              if [ -f \"setup.sh\" ]; then
-                echo \"🚀 正在初始化 SDK 环境...\"
-                ./setup.sh
-              fi
-
-              # 2. 定位解压后的 SDK 目录
-              # setup.sh 运行后通常会产生一个以 openwrt-sdk 开头的文件夹
-              REAL_SDK_DIR=\$(find /builder /home/build -name feeds -path '*/scripts/feeds' 2>/dev/null | sed 's/\/scripts\/feeds//' | head -n 1)
+              [ -f \"setup.sh\" ] && ./setup.sh
               
-              if [ -z \"\$REAL_SDK_DIR\" ]; then
-                echo \"❌ 错误：运行 setup 后仍无法定位 SDK。目录结构如下：\"
-                ls -R /builder
+              # 2. 定位真正的 SDK 根目录
+              SDK_DIR=\$(find /builder /home/build -maxdepth 4 -name feeds -path '*/scripts/feeds' | sed 's/\/scripts\/feeds//' | head -n 1)
+              cd \"\$SDK_DIR\"
+              echo \"✅ 进入 SDK 目录: \$PWD\"
+
+              # 3. 精准定位源码中的 Makefile 并拷贝
+              # 搜索仓库里包含 Makefile 的文件夹，并将其拷贝为 package/gecoosac
+              MAKEFILE_PATH=\$(find /tmp/custom -name Makefile | grep -v 'sdk' | head -n 1)
+              if [ -n \"\$MAKEFILE_PATH\" ]; then
+                SOURCE_DIR=\$(dirname \"\$MAKEFILE_PATH\")
+                mkdir -p package/gecoosac
+                cp -r \"\$SOURCE_DIR\"/* package/gecoosac/
+                echo \"✅ 成功拷贝源码自: \$SOURCE_DIR\"
+              else
+                echo \"❌ 错误：仓库中未发现 Makefile！请确保你上传的是源码文件夹。\"
+                ls -R /tmp/custom
                 exit 1
               fi
-              
-              cd \"\$REAL_SDK_DIR\"
-              echo \"✅ 成功进入 SDK 核心目录: \$PWD\"
-              
-              # 3. 准备源码
-              mkdir -p package/custom
-              cp -r /tmp/custom/* package/custom/
 
-              # 4. 更新 feeds 并编译
+              # 4. 更新并执行编译
               ./scripts/feeds update -a && ./scripts/feeds install -a
-              make defconfig
-              make package/custom/compile V=s
               
-              # 5. 拷回产物
+              # 强制开启该插件并生成配置
+              make defconfig
+              
+              # 5. 执行编译
+              make package/gecoosac/compile V=s
+              
+              # 6. 拷回产物
               mkdir -p /tmp/custom/output_bin
-              [ -d \"bin\" ] && cp -r bin/* /tmp/custom/output_bin/
+              find bin -name \"*.apk\" -exec cp {} /tmp/custom/output_bin/ \;
+              echo \"✅ 编译完成，产物已移至输出目录\"
             "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
-          path: output_bin/**/*.apk
+          path: output_bin/*.apk
