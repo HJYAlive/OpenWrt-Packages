@@ -1,97 +1,52 @@
-name: Update OpenWrt Packages
-on: 
+name: Build GecoosAC APK for AN7581
+
+on:
   push:
     branches: [ main ]
-  workflow_dispatch:
-  schedule:
-  - cron: 0 */12 * * *
-
-env:
-  TZ: Asia/Shanghai
+  workflow_dispatch: # 支持手动点击运行
 
 jobs:
-  Update_OpenWrt_Packages:
+  Build_APK:
     runs-on: ubuntu-latest
+    # 使用官方针对 AN7581 架构预置的 SDK 容器
+    container: openwrt/sdk:airoha-an7581
 
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
 
-      - name: Setup Python 3.9.x
-        uses: actions/setup-python@main
-        with:
-          python-version: '3.9.x'
-
-      - name: Install Dependencies
+      - name: Prepare SDK and Source
         run: |
-          sudo timedatectl set-timezone "$TZ"
-          python -m pip install --upgrade pip
-          pip install -U GitPython
-
-      - name: Update OpenWrt Packages
-        id: update
-        run: |
-          python packages.py
-          rm -rf __pycache__
-          echo "message=$(date)" >> $GITHUB_OUTPUT
-
-      - name: Commit Changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: ${{ steps.update.outputs.message }}
-          
-      - name: Build APK for AN7581
-        run: |
-          # 1. 强制在完整路径下寻找并下载 (直接在单行内完成，防止变量丢失)
-          echo "🔍 正在从 OpenWrt 官网抓取最新的 AN7581 SDK 链接..."
-          
-          # 使用 curl 抓取网页 -> grep 提取文件名 -> head 取第一个 -> wget 下载
-          # 注意：这里的 URL 是写死的，防止环境变量被截断
-          SDK_FILE=$(curl -sL "https://downloads.openwrt.org" | grep -oE 'openwrt-sdk-airoha-an7581_[^"]+\.tar\.xz' | head -n 1)
-          
-          if [ -n "$SDK_FILE" ]; then
-            echo "✅ 成功定位 SDK: $SDK_FILE"
-            wget -q "https://downloads.openwrt.org$SDK_FILE" -O sdk.tar.xz
-          else
-            echo "❌ 严重错误：无法在官网目录找到 SDK 文件！"
-            echo "请检查此链接是否能手动打开: https://downloads.openwrt.org"
-            exit 1
-          fi
-
-          # 2. 解压 SDK (strip-components 确保进入后就是 SDK 根目录)
-          mkdir -p sdk
-          tar -xJf sdk.tar.xz -C sdk --strip-components=1
-          
-          # 3. 准备 SDK 内部环境
-          cd sdk
+          # 1. 进入容器内的 SDK 根目录
+          # 官方镜像的 SDK 通常在 /home/build/openwrt 或当前目录
+          # 我们先确认环境并更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          
-          # 4. 拷贝你的源码 (自动识别 luci-app-gecoosac 或 gecoosac)
-          # ../ 是因为我们现在在 sdk 文件夹里
-          SRC_PATH=$(ls -d ../luci-app-gecoosac ../gecoosac 2>/dev/null | head -n 1)
-          if [ -n "$SRC_PATH" ]; then
-            cp -r "$SRC_PATH" package/gecoosac
-            echo "✅ 已拷贝源码: $SRC_PATH"
+
+          # 2. 拷贝你的源码到 SDK 的 package 目录
+          # 自动识别仓库中的 luci-app-gecoosac 或 gecoosac 文件夹
+          if [ -d "luci-app-gecoosac" ]; then
+            cp -r luci-app-gecoosac package/gecoosac
+          elif [ -d "gecoosac" ]; then
+            cp -r gecoosac package/gecoosac
           else
-            echo "❌ 错误：仓库根目录没找到 luci-app-gecoosac 源码文件夹！"
-            ls -R ..
+            echo "❌ 错误：仓库根目录未发现源码文件夹！请确保文件夹名为 luci-app-gecoosac"
+            ls -R
             exit 1
           fi
-          
-          # 5. 生成配置并编译成 .apk (v3 格式)
-          make defconfig
-          make package/gecoosac/compile V=s || true
 
-      - name: Upload APK to Artifacts
+      - name: Compile Package
+        run: |
+          # 3. 生成默认配置
+          make defconfig
+          
+          # 4. 执行编译 (针对新版 APK v3 格式)
+          # V=s 用于显示详细日志，方便报错排查
+          make package/gecoosac/compile V=s
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gecoosac-apk-an7581
-          path: sdk/bin/targets/airoha/an7581/packages/*.apk
-
-
-      - name: Delete workflow runs
-        uses: Mattraks/delete-workflow-runs@main
-        with:
-          retain_days: 0
-          keep_minimum_runs: 2
+          name: gecoosac-an7581-apk
+          # 编译出的文件通常在 bin/packages/... 目录下
+          path: bin/targets/airoha/an7581/packages/*.apk
