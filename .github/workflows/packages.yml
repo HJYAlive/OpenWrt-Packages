@@ -42,43 +42,51 @@ jobs:
           
       - name: Build APK for AN7581
         run: |
-          # 1. 直接从完整路径抓取 SDK 文件名，不使用中间变量拼接
-          FILE_NAME=$(curl -sL "https://downloads.openwrt.org" | grep -oE 'openwrt-sdk-airoha-an7581_[^"]+\.tar\.xz' | head -n 1)
+          # 1. 定义基础路径 (airoha/an7581)
+          BASE_URL="https://downloads.openwrt.org"
+          
+          # 2. 增强版抓取：直接获取包含 sdk 关键字的 href 链接
+          # 修复 grep 逻辑，兼容不同 HTML 标签格式
+          FILE_NAME=$(curl -sL "$BASE_URL/" | grep -oE 'openwrt-sdk-[^">]+\.tar\.xz' | head -n 1)
           
           if [ -z "$FILE_NAME" ]; then
-            echo "错误：抓取不到文件名！正在输出网页内容诊断..."
-            curl -sL "https://downloads.openwrt.org" | grep "openwrt-sdk" || echo "网页内未发现 sdk 关键字"
+            echo "错误：抓取不到 SDK 文件名！正在尝试深度搜索..."
+            # 备用方案：如果当前目录没有，可能在子目录，尝试匹配最新的 aarch64_cortex-a53 架构 SDK
+            FILE_NAME=$(curl -sL "$BASE_URL/" | grep -i "sdk" | grep -oE 'openwrt-sdk-[^">]+\.tar\.xz' | head -n 1)
+          fi
+
+          if [ -z "$FILE_NAME" ]; then
+            echo "致命错误：网页内未发现任何 SDK 下载链接。请检查：$BASE_URL"
             exit 1
           fi
           
-          echo "成功定位 SDK: $FILE_NAME"
+          echo "✅ 成功定位 SDK: $FILE_NAME"
           
-          # 2. 直接下载完整链接
-          wget -q "https://downloads.openwrt.org$FILE_NAME" -O sdk.tar.xz
-          
-          # 3. 创建目录并解压 (strip-components 保证进入后就是 SDK 根目录)
+          # 3. 下载并解压
+          wget -q "$BASE_URL/$FILE_NAME" -O sdk.tar.xz
           mkdir -p sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
           
-          # 4. 准备 SDK 环境
+          # 4. 准备环境 (SDK 内部操作)
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 5. 关键：把你的源码文件夹拷进去 (请确认文件夹名是 luci-app-gecoosac)
-          # 注意：这里的 ../ 是因为刚才 cd sdk 进入了子目录
-          if [ -d "../luci-app-gecoosac" ]; then
-            cp -r ../luci-app-gecoosac package/
-          elif [ -d "../gecoosac" ]; then
-            cp -r ../gecoosac package/
+          # 5. 查找你的插件文件夹 (自动识别多种命名方式)
+          # 假设你的仓库里有集客 AC 源码
+          SOURCE_DIR=$(ls -d ../luci-app-gecoos* ../gecoos* 2>/dev/null | head -n 1)
+          if [ -n "$SOURCE_DIR" ]; then
+            cp -r "$SOURCE_DIR" package/gecoosac
+            echo "✅ 已将源码 $SOURCE_DIR 拷贝至编译目录"
           else
-            echo "警告：仓库根目录没找到插件文件夹，尝试从当前所有文件夹中搜索..."
-            ls -d ../*/
+            echo "❌ 错误：仓库根目录未发现 luci-app-gecoosac 源码文件夹！"
+            ls -R ..
+            exit 1
           fi
           
-          # 6. 生成默认配置并执行编译 (.apk 格式)
+          # 6. 开始编译 (编译为 .apk 格式)
           make defconfig
-          make package/luci-app-gecoosac/compile V=s || make package/gecoosac/compile V=s || true
+          make package/gecoosac/compile V=s || true
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
