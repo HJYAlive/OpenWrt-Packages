@@ -42,46 +42,49 @@ jobs:
           
       - name: Build APK for AN7581
         run: |
-          # 1. 声明完整路径 (注意双引号，防止链接被截断)
-          TARGET_URL="https://downloads.openwrt.org"
-          
-          # 2. 抓取网页内容并提取 SDK 文件名
-          FILE_NAME=$(curl -sL "$TARGET_URL" | grep -oE "openwrt-sdk-airoha-an7581_[^\"'>]+\.tar\.xz" | head -n 1)
+          # 1. 直接从完整路径抓取 SDK 文件名，不使用中间变量拼接
+          FILE_NAME=$(curl -sL "https://downloads.openwrt.org" | grep -oE 'openwrt-sdk-airoha-an7581_[^"]+\.tar\.xz' | head -n 1)
           
           if [ -z "$FILE_NAME" ]; then
-            echo "错误：无法在 $TARGET_URL 找到 SDK 文件名！"
-            # 打印网页前 20 行调试信息
-            curl -sL "$TARGET_URL" | head -n 20
+            echo "错误：抓取不到文件名！正在输出网页内容诊断..."
+            curl -sL "https://downloads.openwrt.org" | grep "openwrt-sdk" || echo "网页内未发现 sdk 关键字"
             exit 1
           fi
           
-          echo "成功定位 SDK 文件: $FILE_NAME"
+          echo "成功定位 SDK: $FILE_NAME"
           
-          # 3. 下载并重命名，确保解压命令不报错
-          wget -q "${TARGET_URL}${FILE_NAME}" -O sdk.tar.xz
+          # 2. 直接下载完整链接
+          wget -q "https://downloads.openwrt.org$FILE_NAME" -O sdk.tar.xz
           
-          # 4. 创建目录并解压
+          # 3. 创建目录并解压 (strip-components 保证进入后就是 SDK 根目录)
           mkdir -p sdk
           tar -xJf sdk.tar.xz -C sdk --strip-components=1
           
-          # 5. 准备编译环境
+          # 4. 准备 SDK 环境
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 6. 拷贝你的源码 (请确保仓库根目录有 luci-app-gecoosac 文件夹)
-          [ -d "../luci-app-gecoosac" ] && cp -r ../luci-app-gecoosac package/ || echo "警告：未找到源码文件夹"
+          # 5. 关键：把你的源码文件夹拷进去 (请确认文件夹名是 luci-app-gecoosac)
+          # 注意：这里的 ../ 是因为刚才 cd sdk 进入了子目录
+          if [ -d "../luci-app-gecoosac" ]; then
+            cp -r ../luci-app-gecoosac package/
+          elif [ -d "../gecoosac" ]; then
+            cp -r ../gecoosac package/
+          else
+            echo "警告：仓库根目录没找到插件文件夹，尝试从当前所有文件夹中搜索..."
+            ls -d ../*/
+          fi
           
-          # 7. 生成配置并编译成 .apk
+          # 6. 生成默认配置并执行编译 (.apk 格式)
           make defconfig
-          make package/luci-app-gecoosac/compile V=s || true
+          make package/luci-app-gecoosac/compile V=s || make package/gecoosac/compile V=s || true
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-apk-an7581
           path: sdk/bin/targets/airoha/an7581/packages/*.apk
-
 
 
       - name: Delete workflow runs
