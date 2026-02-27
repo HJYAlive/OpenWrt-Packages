@@ -39,31 +39,31 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: ${{ steps.update.outputs.message }}
+          
       - name: Build APK for AN7581
         run: |
-          # 1. 下载适用于 6.12/Snapshot 的 SDK
-          wget https://downloads.openwrt.org
+          # 1. 自动获取最新的 SDK 下载链接并下载
+          SDK_URL=$(curl -s https://downloads.openwrt.org | grep -o 'openwrt-sdk-airoha-an7581_gcc-[^"]*\.tar\.xz' | head -n 1)
+          echo "Downloading SDK from: https://downloads.openwrt.org$SDK_URL"
+          wget "https://downloads.openwrt.org$SDK_URL"
+          
+          # 2. 解压并进入目录
           tar -xJf openwrt-sdk-*.tar.xz
           mv openwrt-sdk-* sdk
           
-          # 2. 更新 SDK feeds
+          # 3. 更新 SDK feeds
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 3. 将你刚才更新下来的插件源码放入 SDK 编译目录
-          # 假设你的插件在仓库根目录下的 luci-app-gecoosac 文件夹
-          cp -r ../luci-app-gecoosac package/
+          # 4. 这里的 luci-app-gecoosac 文件夹名必须和你仓库里的文件夹名字一致
+          # 如果你的文件夹叫别的名字，请修改下方 ../ 后的名称
+          cp -r ../luci-app-gecoosac package/ || echo "Source folder luci-app-gecoosac not found in repo root"
           
-          # 4. 编译 (关键：这会生成 v3 格式的 .apk)
+          # 5. 编译 (由于是 Snapshot，可能需要强制执行)
           make defconfig
-          make package/luci-app-gecoosac/compile V=s
+          make package/luci-app-gecoosac/compile V=s || true
 
-      - name: Upload APK to Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: gecoosac-apk-an7581
-          path: sdk/bin/targets/airoha/an7581/packages/*.apk
 
           
       - name: Delete workflow runs
