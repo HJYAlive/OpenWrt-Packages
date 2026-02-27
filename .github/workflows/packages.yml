@@ -42,30 +42,37 @@ jobs:
           
       - name: Build APK for AN7581
         run: |
-          # 1. 自动获取最新的 SDK 下载链接并下载
-          SDK_URL=$(curl -s https://downloads.openwrt.org | grep -o 'openwrt-sdk-airoha-an7581_gcc-[^"]*\.tar\.xz' | head -n 1)
-          echo "Downloading SDK from: https://downloads.openwrt.org$SDK_URL"
-          wget "https://downloads.openwrt.org$SDK_URL"
+          BASE_URL="https://downloads.openwrt.org"
+          FILE_NAME=$(curl -s "$BASE_URL" | grep -oE "openwrt-sdk-airoha-an7581_[^\"'>]+\.tar\.xz" | head -n 1)
           
-          # 2. 解压并进入目录
-          tar -xJf openwrt-sdk-*.tar.xz
-          mv openwrt-sdk-* sdk
+          if [ -z "$FILE_NAME" ]; then
+            echo "错误：无法在 $BASE_URL 找到 SDK 文件名！"
+            exit 1
+          fi
           
-          # 3. 更新 SDK feeds
+          FULL_URL="${BASE_URL}${FILE_NAME}"
+          echo "正在从此地址下载 SDK: $FULL_URL"
+          
+          wget -q "$FULL_URL" -O sdk_archive.tar.xz
+          mkdir -p sdk
+          tar -xJf sdk_archive.tar.xz -C sdk --strip-components=1
+          
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 4. 这里的 luci-app-gecoosac 文件夹名必须和你仓库里的文件夹名字一致
-          # 如果你的文件夹叫别的名字，请修改下方 ../ 后的名称
-          cp -r ../luci-app-gecoosac package/ || echo "Source folder luci-app-gecoosac not found in repo root"
+          cp -r ../luci-app-gecoosac package/ || echo "警告：未找到源码文件夹"
           
-          # 5. 编译 (由于是 Snapshot，可能需要强制执行)
           make defconfig
           make package/luci-app-gecoosac/compile V=s || true
 
+      - name: Upload APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gecoosac-apk-an7581
+          path: sdk/bin/targets/airoha/an7581/packages/*.apk
 
-          
+
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@main
         with:
