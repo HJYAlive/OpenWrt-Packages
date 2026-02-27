@@ -8,8 +8,10 @@ on:
 jobs:
   Build_APK:
     runs-on: ubuntu-latest
-    # 使用 aarch64 通用 SDK 镜像，确保 Docker Pull 成功
-    container: openwrt/sdk:aarch64_cortex-a53
+    container:
+      image: openwrt/sdk:aarch64_cortex-a53
+      # 关键修复：使用镜像内置的 build 用户，避免权限报错
+      options: --user build
 
     steps:
       - name: Checkout Repo
@@ -17,18 +19,17 @@ jobs:
 
       - name: Prepare SDK and Source
         run: |
-          # 1. 更新容器内的 feeds
+          # 1. 更新容器内的 feeds (SDK 已经在当前目录)
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
           # 2. 自动定位源码文件夹并拷贝
-          # 检查仓库根目录下是否存在源码
           SOURCE_DIR=$(ls -d luci-app-gecoos* gecoos* 2>/dev/null | head -n 1)
           if [ -n "$SOURCE_DIR" ]; then
             cp -r "$SOURCE_DIR" package/gecoosac
             echo "✅ 发现源码: $SOURCE_DIR"
           else
-            echo "❌ 严重错误：仓库根目录没找到 luci-app-gecoosac 源码文件夹！"
+            echo "❌ 严重错误：仓库根目录未发现源码文件夹！"
             ls -R
             exit 1
           fi
@@ -38,13 +39,12 @@ jobs:
           # 3. 生成默认配置
           make defconfig
           
-          # 4. 强制针对 aarch64 编译为 .apk (v3 格式)
-          # 注意：镜像默认环境可能需要指向具体的 Makefile
+          # 4. 编译为 .apk (针对 aarch64 架构)
           make package/gecoosac/compile V=s
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
-          # 编译出的文件路径 (在通用镜像中通常位于 bin/packages/aarch64_cortex-a53/base/)
+          # 编译出的文件路径
           path: bin/packages/aarch64_cortex-a53/base/*.apk
