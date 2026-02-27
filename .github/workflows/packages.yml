@@ -1,34 +1,23 @@
-name: Build GecoosAC APK for AN7581
-
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch: 
-
-jobs:
-  Build_APK:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-
       - name: Build in Docker Container
         run: |
-          # 1. 赋予当前目录权限，确保容器内可以读写
+          # 1. 确保宿主机目录权限开放
           chmod -R 777 .
 
-          # 2. 启动容器并执行编译指令
-          # 我们把当前目录挂载到容器的 /home/build/openwrt/package/custom
+          # 2. 运行容器，注意设置 -w (working directory) 
+          # 我们把当前仓库挂载到容器内的 package/custom 目录
           docker run --rm \
             -v "$(pwd)":/home/build/openwrt/package/custom \
+            -w /home/build/openwrt \
             openwrt/sdk:aarch64_cortex-a53 \
             bash -c "
-              # 更新 Feeds
+              # 更新并安装 Feeds
               ./scripts/feeds update -a && ./scripts/feeds install -a
               
-              # 编译插件 (SDK 会自动识别 package/custom 里的源码)
+              # 自动配置
               make defconfig
+              
+              # 找到刚才挂载进去的源码进行编译 (apk 格式)
+              # 这里的 custom 是挂载名，SDK 会扫描它
               make package/custom/compile V=s
             "
 
@@ -36,5 +25,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
-          # 路径指向宿主机挂载出的 bin 目录
+          # 编译后的文件会出现在宿主机映射出的 bin 目录里
+          # 如果这里找不到，请尝试 path: bin/**/*.apk
           path: bin/packages/aarch64_cortex-a53/base/*.apk
