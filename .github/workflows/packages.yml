@@ -24,11 +24,19 @@ jobs:
             -v "$(pwd)":/tmp/custom \
             openwrt/sdk:aarch64_cortex-a53 \
             bash -c "
-              # 1. 深度搜索 scripts/feeds 所在的绝对路径
+              # 1. 核心修复：运行镜像自带的 setup 脚本来释放 SDK
+              cd /builder
+              if [ -f \"setup.sh\" ]; then
+                echo \"🚀 正在初始化 SDK 环境...\"
+                ./setup.sh
+              fi
+
+              # 2. 定位解压后的 SDK 目录
+              # setup.sh 运行后通常会产生一个以 openwrt-sdk 开头的文件夹
               REAL_SDK_DIR=\$(find /builder /home/build -name feeds -path '*/scripts/feeds' 2>/dev/null | sed 's/\/scripts\/feeds//' | head -n 1)
               
               if [ -z \"\$REAL_SDK_DIR\" ]; then
-                echo \"❌ 致命错误：无法定位 SDK 核心目录\"
+                echo \"❌ 错误：运行 setup 后仍无法定位 SDK。目录结构如下：\"
                 ls -R /builder
                 exit 1
               fi
@@ -36,14 +44,12 @@ jobs:
               cd \"\$REAL_SDK_DIR\"
               echo \"✅ 成功进入 SDK 核心目录: \$PWD\"
               
-              # 2. 准备源码
+              # 3. 准备源码
               mkdir -p package/custom
               cp -r /tmp/custom/* package/custom/
 
-              # 3. 这里的 scripts/feeds 必然存在了
+              # 4. 更新 feeds 并编译
               ./scripts/feeds update -a && ./scripts/feeds install -a
-              
-              # 4. 编译
               make defconfig
               make package/custom/compile V=s
               
