@@ -19,36 +19,34 @@ jobs:
           chmod -R 777 .
 
           # 2. 运行官方 SDK 镜像
-          # 挂载当前目录到容器内的 /tmp/custom
+          # 官方镜像默认用户是 build (UID 1000)，工作目录在 SDK 根目录
           docker run --rm \
             -v "$(pwd)":/tmp/custom \
             openwrt/sdk:aarch64_cortex-a53 \
             bash -c "
-              # 自动定位 SDK 根目录 (寻找 scripts/feeds 所在的目录)
-              SDK_PATH=\$(find / -name feeds -path '*/scripts/feeds' | sed 's/\/scripts\/feeds//' | head -n 1)
-              echo \"✅ 找到 SDK 路径: \$SDK_PATH\"
-              cd \$SDK_PATH
-
-              # 将源码拷贝到 SDK 的 package 目录
+              # 进入 SDK 根目录 (官方标准路径)
+              cd /home/build/openwrt
+              
+              # 拷贝源码到 package
               mkdir -p package/custom
               cp -r /tmp/custom/* package/custom/
 
-              # 更新 feeds 并安装
+              # 更新并安装 feeds
               ./scripts/feeds update -a && ./scripts/feeds install -a
               
-              # 自动配置
+              # 生成默认配置
               make defconfig
               
-              # 编译插件 (针对新版 APK v3 格式)
+              # 编译插件 (生成 .apk)
               make package/custom/compile V=s
               
-              # 编译完成后，把生成的 bin 文件夹拷贝回挂载目录，方便宿主机上传
-              cp -r bin /tmp/custom/output_bin
+              # 将结果拷回挂载点
+              mkdir -p /tmp/custom/output_bin
+              cp -r bin/* /tmp/custom/output_bin/ 2>/dev/null || true
             "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
-          # 指向刚才拷贝出来的 output_bin 目录
           path: output_bin/**/*.apk
