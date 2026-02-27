@@ -15,42 +15,41 @@ jobs:
 
       - name: Cleanup and Fix Permissions
         run: |
-          # 1. 强制清理上一次残留的 root 权限目录
           sudo rm -rf output_bin
-          # 2. 赋予当前目录全权
           sudo chmod -R 777 .
 
       - name: Build in Docker Container
         run: |
-          # 3. 运行官方 SDK 镜像
-          # 挂载宿主机当前目录到容器 /tmp/custom
+          # 运行容器
           docker run --rm \
             -v "$(pwd)":/tmp/custom \
             openwrt/sdk:aarch64_cortex-a53 \
             bash -c "
-              cd /home/build/openwrt
+              # 1. 自动定位 SDK 根目录 (寻找 scripts/feeds 所在的目录)
+              # 官方镜像有时在 /builder, 有时在根目录, 我们通过 scripts 文件夹定位
+              SDK_DIR=\$(find / -maxdepth 3 -name scripts -type d | sed 's/\/scripts//' | head -n 1)
+              cd \"\$SDK_DIR\" || cd /builder || cd /home/build/openwrt || exit 1
+              echo \"✅ 成功进入 SDK 目录: \$PWD\"
               
-              # 拷贝源码到 SDK 目录
+              # 2. 拷贝源码到 package
               mkdir -p package/custom
               cp -r /tmp/custom/* package/custom/
 
-              # 更新 Feeds 并编译
+              # 3. 更新 Feeds 并编译
               ./scripts/feeds update -a && ./scripts/feeds install -a
               make defconfig
               
-              # 执行编译 (APK v3 格式)
+              # 4. 执行编译
               make package/custom/compile V=s
               
-              # 关键：将生成的 bin 目录整体拷贝到挂载点
+              # 5. 将 bin 目录整体拷贝到挂载点
               mkdir -p /tmp/custom/output_bin
-              cp -r bin/* /tmp/custom/output_bin/
+              [ -d \"bin\" ] && cp -r bin/* /tmp/custom/output_bin/ || echo \"❌ 未发现 bin 目录\"
             "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: gecoosac-aarch64-apk
-          # 4. 递归搜索 output_bin 下所有子目录里的 .apk 文件
           path: output_bin/**/*.apk
-          # 如果编译后没找到特定后缀，建议临时改为 path: output_bin/ 查看结构
           if-no-files-found: warn
